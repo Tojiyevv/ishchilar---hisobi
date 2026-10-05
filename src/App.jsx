@@ -1602,7 +1602,7 @@ export default function App() {
             </div>
           </header>
 
-          <div className="p-4 sm:p-6 lg:p-9 max-w-[1600px] mx-auto">{page}</div>
+          <div className="w-full p-4 sm:p-6 lg:p-9">{page}</div>
         </main>
       </div>
 
