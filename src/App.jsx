@@ -1128,44 +1128,82 @@ export default function App() {
   };
 
   const saveWorkerLog = (e) => {
-    e.preventDefault();
-    const workers = Number(workerForm.workers);
-    if (!workerForm.brigadierId || !workers || workers < 0) return;
+  e.preventDefault();
 
-    setBrigadiers((prev) =>
-      prev.map((b) => {
-        if (b.id !== workerForm.brigadierId) return b;
-        const existing = b.logs.find((l) => l.date === workerForm.date);
-        if (existing) {
-          return {
-            ...b,
-            logs: b.logs.map((l) =>
-              l.id === existing.id
-                ? { ...l, workers, note: workerForm.note || l.note }
-                : l
-            ),
+  if (!workerForm.brigadierId) return;
+
+  const rows = (workerForm.rows || [])
+    .map((row) => ({
+      ...row,
+      workers: Number(row.workers) || 0,
+    }))
+    .filter((row) => row.workers > 0);
+
+  if (!rows.length) return;
+
+  const totalWorkers = rows.reduce(
+    (sum, row) => sum + row.workers,
+    0
+  );
+
+  setBrigadiers((prev) =>
+    prev.map((b) => {
+      if (b.id !== workerForm.brigadierId) return b;
+
+      let logs = [...b.logs];
+
+      rows.forEach((row) => {
+        const existingIndex = logs.findIndex(
+          (l) =>
+            l.date === workerForm.date &&
+            l.category === row.category
+        );
+
+        if (existingIndex !== -1) {
+          logs[existingIndex] = {
+            ...logs[existingIndex],
+            workers: row.workers,
+            note: workerForm.note || logs[existingIndex].note,
           };
+        } else {
+          logs.push({
+            id: uid("log"),
+            date: workerForm.date,
+            workers: row.workers,
+            category: row.category,
+            advance: 0,
+            note: workerForm.note,
+          });
         }
-        return {
-          ...b,
-          logs: [
-            ...b.logs,
-            {
-              id: uid("log"),
-              date: workerForm.date,
-              workers,
-              advance: 0,
-              note: workerForm.note,
-            },
-          ],
-        };
-      })
-    );
+      });
 
-    setModal(null);
-    setWorkerForm({ brigadierId: "", date: todayISO(), workers: "", note: "" });
-    addToast("Ishchilar saqlandi", `${number(workers)} ta ishchi uchun ma’lumot yangilandi.`);
-  };
+      return {
+        ...b,
+        logs,
+      };
+    })
+  );
+
+  setModal(null);
+
+  setWorkerForm({
+    brigadierId: "",
+    date: todayISO(),
+    rows: [
+      {
+        id: Date.now(),
+        workers: "",
+        category: "anor_uzish",
+      },
+    ],
+    note: "",
+  });
+
+  addToast(
+  "Ishchilar saqlandi",
+  `${totalWorkers} ta ishchi ma'lumotlari saqlandi.`
+);
+};
 
   const saveAdvance = (e) => {
     e.preventDefault();
@@ -1724,11 +1762,143 @@ export default function App() {
             </select>
           </label>
           <Input label="Sana" type="date" value={workerForm.date} onChange={(v) => setWorkerForm((s) => ({ ...s, date: v }))} />
-          <Input label="Ishchilar soni *" type="number" value={workerForm.workers} onChange={(v) => setWorkerForm((s) => ({ ...s, workers: v }))} placeholder="Masalan: 25" />
+          <div className="space-y-3">
+  <div className="flex items-center justify-between">
+    <div>
+      <p className="text-xs font-bold text-slate-700">
+        Ishchilar kategoriyasi
+      </p>
+
+      <p className="text-[10px] text-slate-400 mt-1">
+        Ishchi sonini yozing va ish turini tanlang
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() =>
+        setWorkerForm((s) => ({
+          ...s,
+          rows: [
+            ...s.rows,
+            {
+              id: Date.now(),
+              workers: "",
+              category: "anor_uzish",
+            },
+          ],
+        }))
+      }
+      className="h-9 px-3 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold"
+    >
+      + Kategoriya qo‘shish
+    </button>
+  </div>
+
+  {workerForm.rows.map((row, index) => (
+    <div
+      key={row.id}
+      className="p-3 rounded-2xl border border-slate-200 bg-slate-50"
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr_auto] gap-3">
+
+        <Input
+          label="Ishchi soni"
+          type="number"
+          value={row.workers}
+          onChange={(v) =>
+            setWorkerForm((s) => ({
+              ...s,
+              rows: s.rows.map((item) =>
+                item.id === row.id
+                  ? { ...item, workers: v }
+                  : item
+              ),
+            }))
+          }
+          placeholder="10"
+        />
+
+        <label className="block">
+          <span className="block text-xs font-bold text-slate-600 mb-2">
+            Ish turi
+          </span>
+
+          <select
+            value={row.category}
+            onChange={(e) =>
+              setWorkerForm((s) => ({
+                ...s,
+                rows: s.rows.map((item) =>
+                  item.id === row.id
+                    ? {
+                        ...item,
+                        category: e.target.value,
+                      }
+                    : item
+                ),
+              }))
+            }
+            className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:border-emerald-500"
+          >
+            <option value="anor_uzish">
+              🍎 Anor uzish
+            </option>
+
+            <option value="salafanlash">
+              📦 Salafanlash
+            </option>
+
+            <option value="ortish">
+              🚚 Ortish
+            </option>
+          </select>
+        </label>
+
+        {workerForm.rows.length > 1 && (
+          <button
+            type="button"
+            onClick={() =>
+              setWorkerForm((s) => ({
+                ...s,
+                rows: s.rows.filter(
+                  (item) => item.id !== row.id
+                ),
+              }))
+            }
+            className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-red-500"
+          >
+            ×
+          </button>
+        )}
+      </div>
+    </div>
+  ))}
+
+  <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-100">
+    <span className="text-xs font-bold text-emerald-700">
+      Jami ishchilar
+    </span>
+
+    <span className="text-lg font-black text-emerald-800">
+      {workerForm.rows.reduce(
+        (sum, row) =>
+          sum + (Number(row.workers) || 0),
+        0
+      )} ta
+    </span>
+  </div>
+</div>
           <Input label="Izoh" value={workerForm.note} onChange={(v) => setWorkerForm((s) => ({ ...s, note: v }))} placeholder="Masalan: Anor terimi" />
           <button
             type="submit"
-            disabled={!workerForm.brigadierId || !workerForm.workers}
+           disabled={
+  !workerForm.brigadierId ||
+  !workerForm.rows ||
+  !workerForm.rows.some(
+    (row) => Number(row.workers) > 0
+  )
+}
             className="w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-40"
           >
             Ishchilarni saqlash
