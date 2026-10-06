@@ -720,14 +720,17 @@ export default function App() {
  const importBackup=()=>{
  const input=document.createElement("input");
  input.type="file";
- input.accept=".json,application/json";
+ input.accept=".json,.txt,application/json,text/plain";
  input.onchange=(e)=>{
  const file=e.target.files?.[0];
  if(!file)return;
  const reader=new FileReader();
  reader.onload=(event)=>{
  try{
- const data=JSON.parse(event.target.result);
+ const raw=String(event.target.result||"").replace(/^\uFEFF/,"").trim();
+ let data=JSON.parse(raw);
+ if(typeof data==="string")data=JSON.parse(data);
+ if(data?.data && typeof data.data==="object" && !Array.isArray(data.data))data=data.data;
  if(!data||!Array.isArray(data.brigadiers))throw new Error("invalid");
  if(!window.confirm("Backup ma’lumotlari hozirgi barcha ma’lumotlarni almashtiradi. Davom etasizmi?"))return;
 
