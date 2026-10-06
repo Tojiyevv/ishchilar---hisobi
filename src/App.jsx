@@ -24,8 +24,6 @@ import {
   Settings,
   Sparkles,
   TrendingUp,
-  Trash2,
-  AlertCircle,
   User,
   UserPlus,
   Users,
@@ -44,7 +42,24 @@ import {
 */
 
 const STORAGE_KEY = "anor_bogi_v3";
-const DAILY_RATE = 150000;
+const DEFAULT_CATEGORY_RATES = {
+  anor_uzish: 150000,
+  salafanlash: 150000,
+  ortish: 150000,
+};
+const DAILY_RATE = DEFAULT_CATEGORY_RATES.anor_uzish;
+
+const CATEGORY_META = {
+  anor_uzish: { name: "Anor uzuvchi", icon: "🍎" },
+  salafanlash: { name: "Salafan qiluvchi", icon: "📦" },
+  ortish: { name: "Mashinaga ortuvchi", icon: "🚚" },
+};
+
+const getCategoryName = (category) =>
+  CATEGORY_META[category]?.name || CATEGORY_META.anor_uzish.name;
+
+const getCategoryRate = (categoryRates, category) =>
+  Number(categoryRates?.[category]) || 0;
 
 const money = (value = 0) =>
   new Intl.NumberFormat("uz-UZ").format(Math.round(Number(value) || 0)) + " so'm";
@@ -52,7 +67,25 @@ const money = (value = 0) =>
 const number = (value = 0) =>
   new Intl.NumberFormat("uz-UZ").format(Number(value) || 0);
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const WEEKDAY_SHORT = ["Ya", "Du", "Se", "Ch", "Pa", "Ju", "Sh"];
+
+const getLast7DayLabels = () => {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (6 - i));
+    return WEEKDAY_SHORT[date.getDay()];
+  });
+};
 
 const formatDate = (date) => {
   if (!date) return "—";
@@ -264,7 +297,7 @@ function Dashboard({
   onOpenFinance,
 }) {
   const chart = stats.dailyWorkers.map((v, i) => ({
-    label: ["Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"][i],
+    label: getLast7DayLabels()[i],
     value: v,
   }));
 
@@ -322,8 +355,8 @@ function Dashboard({
         <StatCard
           icon={Wallet}
           label="Bugungi mehnat xarajati"
-          value={money(stats.todayWorkers * DAILY_RATE)}
-          hint={`${money(DAILY_RATE)} / ishchi`}
+          value={money(stats.todayEarned)}
+          hint="3 ta ish turi bo‘yicha hisoblangan"
           tone="purple"
           onClick={onOpenFinance}
         />
@@ -474,7 +507,7 @@ function Dashboard({
   );
 }
 
-function BrigadiersPage({ brigadiers, onAdd, onOpen }) {
+function BrigadiersPage({ brigadiers, onAdd, onOpen, categoryRates }) {
   const [query, setQuery] = useState("");
 
   const filtered = brigadiers.filter((b) =>
@@ -494,67 +527,46 @@ function BrigadiersPage({ brigadiers, onAdd, onOpen }) {
       <div className="bg-white border border-slate-200/80 rounded-[24px] p-4 shadow-[0_6px_30px_rgba(15,23,42,0.04)]">
         <div className="relative">
           <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Brigadir nomi yoki telefon raqami bo‘yicha qidiring..."
-            className="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-50 border border-slate-200 outline-none focus:bg-white focus:border-emerald-500 text-sm"
-          />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Brigadir nomi yoki telefon raqami bo‘yicha qidiring..." className="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-50 border border-slate-200 outline-none focus:bg-white focus:border-emerald-500 text-sm" />
         </div>
       </div>
 
       {!filtered.length ? (
         <div className="bg-white border border-slate-200/80 rounded-[24px]">
-          <EmptyState
-            icon={Users}
-            title={brigadiers.length ? "Natija topilmadi" : "Hali brigadir yo‘q"}
-            description={
-              brigadiers.length
-                ? "Qidiruv so‘zini o‘zgartirib ko‘ring."
-                : "Tizimni 0 dan boshlayapsiz. Birinchi brigadirni qo‘shing."
-            }
-            action={!brigadiers.length ? "Birinchi brigadirni qo‘shish" : undefined}
-            onAction={onAdd}
-          />
+          <EmptyState icon={Users} title={brigadiers.length ? "Natija topilmadi" : "Hali brigadir yo‘q"} description={brigadiers.length ? "Qidiruv so‘zini o‘zgartirib ko‘ring." : "Tizimni 0 dan boshlayapsiz. Birinchi brigadirni qo‘shing."} action={!brigadiers.length ? "Birinchi brigadirni qo‘shish" : undefined} onAction={onAdd} />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((b) => {
-            const workers = b.logs.reduce((s, l) => s + (Number(l.workers) || 0), 0);
+            const categoryWorkers = { anor_uzish: 0, salafanlash: 0, ortish: 0 };
+            b.logs.forEach((l) => {
+              const category = l.category || "anor_uzish";
+              if (categoryWorkers[category] !== undefined) categoryWorkers[category] += Number(l.workers) || 0;
+            });
+            const earned = Object.entries(categoryWorkers).reduce((sum, [category, workers]) => sum + workers * getCategoryRate(categoryRates, category), 0);
             const advances = b.logs.reduce((s, l) => s + (Number(l.advance) || 0), 0);
-            const earned = workers * DAILY_RATE;
             return (
-              <button
-                key={b.id}
-                onClick={() => onOpen(b.id)}
-                className="group text-left bg-white border border-slate-200/80 rounded-[24px] p-5 hover:border-emerald-300 hover:-translate-y-0.5 shadow-[0_6px_30px_rgba(15,23,42,0.04)] transition"
-              >
+              <button key={b.id} onClick={() => onOpen(b.id)} className="group text-left bg-white border border-slate-200/80 rounded-[24px] p-5 hover:border-emerald-300 hover:-translate-y-0.5 shadow-[0_6px_30px_rgba(15,23,42,0.04)] transition">
                 <div className="flex items-start justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-lg">
-                    {b.name?.trim()?.charAt(0)?.toUpperCase() || "B"}
-                  </div>
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-lg">{b.name?.trim()?.charAt(0)?.toUpperCase() || "B"}</div>
                   <MoreHorizontal size={19} className="text-slate-300" />
                 </div>
                 <h3 className="mt-5 text-lg font-black text-slate-900">{b.name}</h3>
                 <p className="text-xs text-slate-400 mt-1">{b.phone || "Telefon kiritilmagan"}</p>
-
-                <div className="mt-5 grid grid-cols-2 gap-2">
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-[10px] text-slate-400">Jami ishchi</p>
-                    <p className="mt-1 font-black text-slate-800">{number(workers)}</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-[10px] text-slate-400">Hisoblangan</p>
-                    <p className="mt-1 font-black text-slate-800 text-xs">{money(earned)}</p>
-                  </div>
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  {Object.entries(CATEGORY_META).map(([id, meta]) => (
+                    <div key={id} className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-base">{meta.icon}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-slate-400">{meta.name}</p>
+                      <p className="mt-1 font-black text-slate-800">{number(categoryWorkers[id])}</p>
+                    </div>
+                  ))}
                 </div>
-
                 <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Avans: <b className="text-slate-700">{money(advances)}</b></span>
-                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
-                    Ochish <ChevronRight size={15} />
-                  </span>
+                  <div><span className="text-xs text-slate-400">Hisoblangan: </span><b className="text-xs text-slate-700">{money(earned)}</b></div>
+                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">Ochish <ChevronRight size={15} /></span>
                 </div>
+                <p className="mt-2 text-[11px] text-slate-400">Avans: {money(advances)}</p>
               </button>
             );
           })}
@@ -564,195 +576,78 @@ function BrigadiersPage({ brigadiers, onAdd, onOpen }) {
   );
 }
 
-function BrigadierDetail({ brigadier, onBack, onAddWorkers, onAdvance, onDelete }) {
+function BrigadierDetail({ brigadier, categoryRates, onBack, onAddWorkers, onAdvance, onDelete }) {
   if (!brigadier) return null;
-
-  const workers = brigadier.logs.reduce((s, l) => s + (Number(l.workers) || 0), 0);
+  const categoryWorkers = { anor_uzish: 0, salafanlash: 0, ortish: 0 };
+  brigadier.logs.forEach((l) => {
+    const category = l.category || "anor_uzish";
+    if (categoryWorkers[category] !== undefined) categoryWorkers[category] += Number(l.workers) || 0;
+  });
+  const earned = Object.entries(categoryWorkers).reduce((sum, [category, workers]) => sum + workers * getCategoryRate(categoryRates, category), 0);
   const advance = brigadier.logs.reduce((s, l) => s + (Number(l.advance) || 0), 0);
-  const earned = workers * DAILY_RATE;
   const balance = Math.max(earned - advance, 0);
 
   return (
     <div className="space-y-6">
-      <button
-        onClick={onBack}
-        className="text-sm font-bold text-slate-500 hover:text-emerald-700 flex items-center gap-2"
-      >
-        ← Brigadirlar ro‘yxatiga qaytish
-      </button>
-
+      <button onClick={onBack} className="text-sm font-bold text-slate-500 hover:text-emerald-700 flex items-center gap-2">← Brigadirlar ro‘yxatiga qaytish</button>
       <section className="bg-white border border-slate-200/80 rounded-[26px] p-6 shadow-[0_6px_30px_rgba(15,23,42,0.04)]">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-[20px] bg-emerald-50 text-emerald-700 flex items-center justify-center text-2xl font-black">
-              {brigadier.name.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600">Brigadir</p>
-              <h1 className="mt-1 text-2xl font-black text-slate-900">{brigadier.name}</h1>
-              <p className="mt-1 text-sm text-slate-400">{brigadier.phone || "Telefon kiritilmagan"}</p>
-            </div>
+            <div className="w-16 h-16 rounded-[20px] bg-emerald-50 text-emerald-700 flex items-center justify-center text-2xl font-black">{brigadier.name.charAt(0).toUpperCase()}</div>
+            <div><p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600">Brigadir</p><h1 className="mt-1 text-2xl font-black text-slate-900">{brigadier.name}</h1><p className="mt-1 text-sm text-slate-400">{brigadier.phone || "Telefon kiritilmagan"}</p></div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={onAddWorkers}
-              className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold flex items-center gap-2"
-            >
-              <Users size={16} /> Ishchi kiritish
-            </button>
-            <button
-              onClick={onAdvance}
-              className="px-4 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold flex items-center gap-2"
-            >
-              <Wallet size={16} /> Avans berish
-            </button>
-          </div>
+          <div className="flex flex-wrap gap-2"><button onClick={onAddWorkers} className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold flex items-center gap-2"><Users size={16} /> Ishchi kiritish</button><button onClick={onAdvance} className="px-4 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold flex items-center gap-2"><Wallet size={16} /> Avans berish</button></div>
         </div>
-
-        <div className="mt-7 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-[11px] text-slate-400">Jami ishchi</p>
-            <p className="mt-1 text-xl font-black">{number(workers)}</p>
-          </div>
-          <div className="rounded-2xl bg-emerald-50 p-4">
-            <p className="text-[11px] text-emerald-700/70">Hisoblangan</p>
-            <p className="mt-1 text-lg font-black text-emerald-800">{money(earned)}</p>
-          </div>
-          <div className="rounded-2xl bg-orange-50 p-4">
-            <p className="text-[11px] text-orange-700/70">Avans</p>
-            <p className="mt-1 text-lg font-black text-orange-800">{money(advance)}</p>
-          </div>
-          <div className="rounded-2xl bg-blue-50 p-4">
-            <p className="text-[11px] text-blue-700/70">Qolgan haq</p>
-            <p className="mt-1 text-lg font-black text-blue-800">{money(balance)}</p>
-          </div>
+        <div className="mt-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {Object.entries(CATEGORY_META).map(([id, meta]) => (<div key={id} className="rounded-2xl bg-slate-50 p-4"><div className="flex items-center justify-between"><span className="text-xl">{meta.icon}</span><span className="text-[10px] font-bold text-slate-400">{money(getCategoryRate(categoryRates,id))}/ta</span></div><p className="mt-3 text-[11px] text-slate-400">{meta.name}</p><p className="mt-1 text-2xl font-black">{number(categoryWorkers[id])}</p><p className="mt-1 text-xs font-bold text-emerald-700">{money(categoryWorkers[id] * getCategoryRate(categoryRates,id))}</p></div>))}
+        </div>
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-[11px] text-emerald-700/70">Jami hisoblangan</p><p className="mt-1 text-lg font-black text-emerald-800">{money(earned)}</p></div>
+          <div className="rounded-2xl bg-orange-50 p-4"><p className="text-[11px] text-orange-700/70">Avans</p><p className="mt-1 text-lg font-black text-orange-800">{money(advance)}</p></div>
+          <div className="rounded-2xl bg-blue-50 p-4"><p className="text-[11px] text-blue-700/70">Qolgan haq</p><p className="mt-1 text-lg font-black text-blue-800">{money(balance)}</p></div>
         </div>
       </section>
-
       <div className="bg-white border border-slate-200/80 rounded-[24px] overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="font-black text-slate-900">Faoliyat tarixi</h3>
-            <p className="text-xs text-slate-500 mt-1">Ishchilar va avanslar</p>
-          </div>
-          <ClipboardList size={19} className="text-slate-300" />
-        </div>
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between"><div><h3 className="font-black text-slate-900">Faoliyat tarixi</h3><p className="text-xs text-slate-500 mt-1">Ishchilar, kategoriyalar va avanslar</p></div><ClipboardList size={19} className="text-slate-300" /></div>
+        {!brigadier.logs.length ? <EmptyState icon={ClipboardList} title="Hali ma’lumot yo‘q" description="Bu brigadir uchun birinchi ish kuni yoki avansni kiriting." /> : (() => {
+          const groupedByDate = brigadier.logs.reduce((groups, log) => {
+            if (!groups[log.date]) groups[log.date] = [];
+            groups[log.date].push(log);
+            return groups;
+          }, {});
+          const dates = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a));
 
-        {!brigadier.logs.length ? (
-          <EmptyState
-            icon={ClipboardList}
-            title="Hali ma’lumot yo‘q"
-            description="Bu brigadir uchun birinchi ish kuni yoki avansni kiriting."
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400">
-                <tr>
-                  <th className="text-left px-6 py-3 font-bold">Sana</th>
-                  <th className="text-left px-6 py-3 font-bold">Ishchi</th>
-                  <th className="text-left px-6 py-3 font-bold">Avans</th>
-                  <th className="text-left px-6 py-3 font-bold">Izoh</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {[...brigadier.logs].reverse().map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50/70">
-                    <td className="px-6 py-4 font-semibold text-slate-700">{formatDate(log.date)}</td>
-                    <td className="px-6 py-4">{log.workers ? `${number(log.workers)} ta` : "—"}</td>
-                    <td className="px-6 py-4 font-bold text-orange-600">{log.advance ? money(log.advance) : "—"}</td>
-                    <td className="px-6 py-4 text-slate-400">{log.note || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+          return <div className="overflow-x-auto"><table className="w-full text-sm min-w-[760px]"><thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400"><tr><th className="text-left px-6 py-3 font-bold w-[180px]">Sana</th><th className="text-left px-6 py-3 font-bold">Turi</th><th className="text-left px-6 py-3 font-bold">Soni</th><th className="text-left px-6 py-3 font-bold">Avans</th><th className="text-left px-6 py-3 font-bold">Izoh</th></tr></thead><tbody className="divide-y divide-slate-100">{dates.map((date) => groupedByDate[date].map((log, index) => <tr key={log.id} className="hover:bg-slate-50/70">
+            {index === 0 && <td rowSpan={groupedByDate[date].length} className="px-6 py-4 align-top font-bold text-slate-700 whitespace-nowrap bg-white">{formatDate(date)}</td>}
+            <td className="px-6 py-4">{Number(log.workers)>0 ? getCategoryName(log.category || "anor_uzish") : "Avans"}</td>
+            <td className="px-6 py-4">{Number(log.workers)>0 ? `${number(log.workers)} ta` : "—"}</td>
+            <td className="px-6 py-4 font-bold text-orange-600">{log.advance ? money(log.advance) : "—"}</td>
+            <td className="px-6 py-4 text-slate-400">{log.note || "—"}</td>
+          </tr>))}</tbody></table></div>;
+        })()}
       </div>
-
-      <div className="flex justify-end">
-        <button
-          onClick={onDelete}
-          className="text-xs font-bold text-rose-500 hover:text-rose-700"
-        >
-          Ushbu brigadirni o‘chirish
-        </button>
-      </div>
+      <div className="flex justify-end"><button onClick={onDelete} className="text-xs font-bold text-rose-500 hover:text-rose-700">Ushbu brigadirni o‘chirish</button></div>
     </div>
   );
 }
 
-function ReportsPage({ stats, brigadiers }) {
+function ReportsPage({ stats, brigadiers, categoryRates }) {
   const rows = brigadiers.map((b) => {
-    const workers = b.logs.reduce((s, l) => s + (Number(l.workers) || 0), 0);
-    const advance = b.logs.reduce((s, l) => s + (Number(l.advance) || 0), 0);
-    return {
-      name: b.name,
-      workers,
-      earned: workers * DAILY_RATE,
-      advance,
-      balance: Math.max(workers * DAILY_RATE - advance, 0),
-    };
+    const categoryWorkers = { anor_uzish: 0, salafanlash: 0, ortish: 0 };
+    b.logs.forEach((l) => { const category = l.category || "anor_uzish"; if (categoryWorkers[category] !== undefined) categoryWorkers[category] += Number(l.workers) || 0; });
+    const earned = Object.entries(categoryWorkers).reduce((sum,[category,workers]) => sum + workers * getCategoryRate(categoryRates,category), 0);
+    const advance = b.logs.reduce((s,l)=>s+(Number(l.advance)||0),0);
+    return { name:b.name, categories:categoryWorkers, workers:Object.values(categoryWorkers).reduce((a,b)=>a+b,0), earned, advance, balance:Math.max(earned-advance,0) };
   });
-
   return (
-    <div className="space-y-6">
-      <SectionTitle
-        eyebrow="Nazorat va tahlil"
-        title="Hisobotlar"
-        description="Brigadirlar va mehnat xarajatlari bo‘yicha umumiy ko‘rinish."
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={Users} label="Jami ishchilar" value={number(stats.allWorkers)} hint="Kiritilgan jami ishchi soni" />
-        <StatCard icon={Wallet} label="Hisoblangan ish haqi" value={money(stats.totalEarned)} hint="Kunlik stavka asosida" tone="purple" />
-        <StatCard icon={CircleDollarSign} label="Qolgan to‘lov" value={money(Math.max(stats.totalEarned - stats.totalAdvance, 0))} hint="Avans chegirilgandan keyin" tone="orange" />
-      </div>
-
-      <div className="bg-white border border-slate-200/80 rounded-[24px] overflow-hidden shadow-[0_6px_30px_rgba(15,23,42,0.04)]">
-        <div className="px-6 py-5 border-b border-slate-100">
-          <h3 className="font-black text-slate-900">Brigadirlar hisoboti</h3>
-          <p className="text-xs text-slate-500 mt-1">Har bir brigadir bo‘yicha umumiy natija</p>
-        </div>
-
-        {!rows.length ? (
-          <EmptyState
-            icon={FileBarChart}
-            title="Hisobot uchun ma’lumot yetarli emas"
-            description="Avval brigadirlar va ishchilar haqidagi ma’lumotlarni kiriting."
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400">
-                <tr>
-                  <th className="text-left px-6 py-3">Brigadir</th>
-                  <th className="text-left px-6 py-3">Ishchi</th>
-                  <th className="text-left px-6 py-3">Hisoblangan</th>
-                  <th className="text-left px-6 py-3">Avans</th>
-                  <th className="text-left px-6 py-3">Qolgan</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((r) => (
-                  <tr key={r.name}>
-                    <td className="px-6 py-4 font-bold text-slate-800">{r.name}</td>
-                    <td className="px-6 py-4">{number(r.workers)} ta</td>
-                    <td className="px-6 py-4 font-semibold">{money(r.earned)}</td>
-                    <td className="px-6 py-4 text-orange-600 font-semibold">{money(r.advance)}</td>
-                    <td className="px-6 py-4 text-emerald-700 font-bold">{money(r.balance)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+    <div className="space-y-6"><SectionTitle eyebrow="Nazorat va tahlil" title="Hisobotlar" description="Har bir brigadir va ish turi bo‘yicha hisob-kitob." />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><StatCard icon={Users} label="Jami ishchilar" value={number(stats.allWorkers)} hint="Kiritilgan jami ishchi soni" /><StatCard icon={Wallet} label="Hisoblangan ish haqi" value={money(stats.totalEarned)} hint="3 kategoriya stavkasi asosida" tone="purple" /><StatCard icon={CircleDollarSign} label="Qolgan to‘lov" value={money(Math.max(stats.totalEarned-stats.totalAdvance,0))} hint="Avans chegirilgandan keyin" tone="orange" /></div>
+      <div className="bg-white border border-slate-200/80 rounded-[24px] overflow-hidden shadow-[0_6px_30px_rgba(15,23,42,0.04)]"><div className="px-6 py-5 border-b border-slate-100"><h3 className="font-black text-slate-900">Brigadirlar hisoboti</h3><p className="text-xs text-slate-500 mt-1">Kategoriya kesimida ishchilar va pul hisoboti</p></div>{!rows.length?<EmptyState icon={FileBarChart} title="Hisobot uchun ma’lumot yetarli emas" description="Avval brigadirlar va ishchilar haqidagi ma’lumotlarni kiriting."/>:<div className="overflow-x-auto"><table className="w-full text-sm min-w-[900px]"><thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400"><tr><th className="text-left px-6 py-3">Brigadir</th><th className="text-left px-6 py-3">🍎 Anor uzuvchi</th><th className="text-left px-6 py-3">📦 Salafan qiluvchi</th><th className="text-left px-6 py-3">🚚 Mashinaga ortuvchi</th><th className="text-left px-6 py-3">Jami</th><th className="text-left px-6 py-3">Hisoblangan</th><th className="text-left px-6 py-3">Avans</th><th className="text-left px-6 py-3">Qolgan</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map(r=><tr key={r.name}><td className="px-6 py-4 font-bold text-slate-800">{r.name}</td><td className="px-6 py-4">{number(r.categories.anor_uzish)} ta</td><td className="px-6 py-4">{number(r.categories.salafanlash)} ta</td><td className="px-6 py-4">{number(r.categories.ortish)} ta</td><td className="px-6 py-4 font-bold">{number(r.workers)} ta</td><td className="px-6 py-4 font-semibold">{money(r.earned)}</td><td className="px-6 py-4 text-orange-600 font-semibold">{money(r.advance)}</td><td className="px-6 py-4 text-emerald-700 font-bold">{money(r.balance)}</td></tr>)}</tbody></table></div>}</div>
     </div>
   );
 }
 
-function FinancePage({ stats, brigadiers }) {
+function FinancePage({ stats, brigadiers, categoryRates }) {
   const transactions = [];
   brigadiers.forEach((b) =>
     b.logs.forEach((l) => {
@@ -769,52 +664,152 @@ function FinancePage({ stats, brigadiers }) {
   );
   transactions.sort((a, b) => b.date.localeCompare(a.date));
 
+  const categorySummary = Object.entries(CATEGORY_META).map(([id, meta]) => {
+    const workers = Number(stats.categoryWorkers?.[id]) || 0;
+    const rate = getCategoryRate(categoryRates, id);
+    const earned = workers * rate;
+    const share = stats.totalEarned > 0 ? Math.round((earned / stats.totalEarned) * 100) : 0;
+    return { id, meta, workers, rate, earned, share };
+  });
+
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6">
       <SectionTitle
         eyebrow="Moliya"
         title="Moliyaviy boshqaruv"
-        description="Mehnat xarajatlari, avanslar va qolgan to‘lovlarni kuzating."
+        description="Mehnat xarajatlari, avanslar va har bir kategoriya bo‘yicha qancha pul hisoblanganini kuzating."
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={TrendingUp} label="Jami hisoblangan" value={money(stats.totalEarned)} hint="Barcha ishchilar" tone="green" />
-        <StatCard icon={Wallet} label="Berilgan avans" value={money(stats.totalAdvance)} hint={`${number(stats.advanceCount)} ta operatsiya`} tone="orange" />
-        <StatCard icon={CircleDollarSign} label="Qolgan haq" value={money(Math.max(stats.totalEarned - stats.totalAdvance, 0))} hint="Hisoblangan − avans" tone="blue" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+        <StatCard
+          icon={TrendingUp}
+          label="Jami hisoblangan"
+          value={money(stats.totalEarned)}
+          hint="Barcha kategoriyalar"
+          tone="green"
+        />
+        <StatCard
+          icon={Wallet}
+          label="Berilgan avans"
+          value={money(stats.totalAdvance)}
+          hint={`${number(stats.advanceCount)} ta operatsiya`}
+          tone="orange"
+        />
+        <StatCard
+          icon={CircleDollarSign}
+          label="Qolgan haq"
+          value={money(Math.max(stats.totalEarned - stats.totalAdvance, 0))}
+          hint="Hisoblangan − avans"
+          tone="blue"
+        />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-white border border-slate-200/80 rounded-[24px] p-6">
+      {/* Kategoriya bo‘yicha haqiqiy hisob */}
+      <div className="bg-white border border-slate-200/80 rounded-[24px] overflow-hidden shadow-[0_6px_30px_rgba(15,23,42,0.04)] w-full">
+        <div className="px-5 sm:px-6 py-5 border-b border-slate-100">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-black text-slate-900">Kategoriya bo‘yicha hisob</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Har bir ish turi qancha ishchi va qancha pul hisoblaganini ko‘ring.
+              </p>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-slate-400">
+              <Leaf size={15} className="text-emerald-600" />
+              Jami: {money(stats.totalEarned)}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          {categorySummary.map(({ id, meta, workers, rate, earned, share }) => (
+            <div
+              key={id}
+              className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 sm:p-5 min-w-0"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 shrink-0 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-xl">
+                    {meta.icon}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-black text-sm text-slate-800 truncate">{meta.name}</p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      {number(workers)} ta ishchi
+                    </p>
+                  </div>
+                </div>
+                <span className="shrink-0 text-[11px] font-black text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg">
+                  {share}%
+                </span>
+              </div>
+
+              <div className="mt-5">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                  Hisoblangan pul
+                </p>
+                <p className="mt-1 text-xl sm:text-2xl font-black text-slate-900 break-words">
+                  {money(earned)}
+                </p>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-200/70 flex items-center justify-between gap-3 text-xs">
+                <span className="text-slate-400">1 ishchi stavkasi</span>
+                <b className="text-slate-700">{money(rate)}</b>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 w-full">
+        <div className="bg-white border border-slate-200/80 rounded-[24px] p-5 sm:p-6 min-w-0">
           <p className="text-xs font-bold text-slate-400">Mehnat uchun umumiy hisob</p>
-          <p className="mt-2 text-3xl font-black text-slate-900">{money(stats.totalEarned)}</p>
+          <p className="mt-2 text-2xl sm:text-3xl font-black text-slate-900 break-words">
+            {money(stats.totalEarned)}
+          </p>
           <div className="mt-6 h-3 bg-slate-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-emerald-600 rounded-full"
+              className="h-full bg-emerald-600 rounded-full transition-all"
               style={{
-                width: `${Math.min((stats.totalAdvance / Math.max(stats.totalEarned, 1)) * 100, 100)}%`,
+                width: `${Math.min(
+                  (stats.totalAdvance / Math.max(stats.totalEarned, 1)) * 100,
+                  100
+                )}%`,
               }}
             />
           </div>
           <div className="mt-3 flex justify-between text-xs">
             <span className="text-slate-400">Avans ulushi</span>
             <b className="text-slate-700">
-              {stats.totalEarned ? Math.round((stats.totalAdvance / stats.totalEarned) * 100) : 0}%
+              {stats.totalEarned
+                ? Math.round((stats.totalAdvance / stats.totalEarned) * 100)
+                : 0}%
             </b>
           </div>
         </div>
 
-        <div className="bg-[#f3faf6] border border-emerald-100 rounded-[24px] p-6">
+        <div className="bg-[#f3faf6] border border-emerald-100 rounded-[24px] p-5 sm:p-6 min-w-0">
           <div className="flex items-center gap-2 text-emerald-700">
             <Leaf size={18} />
-            <span className="text-xs font-black">ISH HAQI STAVKASI</span>
+            <span className="text-xs font-black">ISH HAQI STAVKALARI</span>
           </div>
-          <p className="mt-3 text-3xl font-black text-slate-900">{money(DAILY_RATE)}</p>
-          <p className="mt-1 text-sm text-slate-500">1 ishchi uchun kunlik hisob-kitob.</p>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {categorySummary.map(({ id, meta, rate }) => (
+              <div key={id} className="bg-white/80 rounded-2xl p-3 min-w-0">
+                <p className="text-lg">{meta.icon}</p>
+                <p className="mt-2 text-[10px] text-slate-400 leading-4">{meta.name}</p>
+                <p className="mt-1 font-black text-slate-900 break-words">
+                  {money(rate)}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200/80 rounded-[24px] overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100">
+      <div className="bg-white border border-slate-200/80 rounded-[24px] overflow-hidden w-full">
+        <div className="px-5 sm:px-6 py-5 border-b border-slate-100">
           <h3 className="font-black text-slate-900">Avans operatsiyalari</h3>
           <p className="text-xs text-slate-500 mt-1">Eng so‘nggi berilgan avanslar</p>
         </div>
@@ -827,15 +822,17 @@ function FinancePage({ stats, brigadiers }) {
         ) : (
           <div className="divide-y divide-slate-100">
             {transactions.map((t) => (
-              <div key={t.id} className="px-6 py-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+              <div key={t.id} className="px-5 sm:px-6 py-4 flex items-center gap-4 min-w-0">
+                <div className="w-10 h-10 shrink-0 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
                   <Wallet size={18} />
                 </div>
-                <div className="flex-1">
-                  <p className="font-bold text-sm text-slate-800">{t.name}</p>
-                  <p className="text-xs text-slate-400 mt-1">{formatDate(t.date)} · {t.note}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-slate-800 truncate">{t.name}</p>
+                  <p className="text-xs text-slate-400 mt-1 truncate">
+                    {formatDate(t.date)} · {t.note}
+                  </p>
                 </div>
-                <p className="font-black text-orange-600">{money(t.amount)}</p>
+                <p className="font-black text-orange-600 whitespace-nowrap">{money(t.amount)}</p>
               </div>
             ))}
           </div>
@@ -845,139 +842,20 @@ function FinancePage({ stats, brigadiers }) {
   );
 }
 
-function DailyWorkPage({ brigadiers, onAddWorkers }) {
-  const today = todayISO();
-  const entries = [];
-  brigadiers.forEach((b) => {
-    const log = b.logs.find((l) => l.date === today);
-    if (log && Number(log.workers) > 0) {
-      entries.push({ name: b.name, workers: Number(log.workers), note: log.note });
-    }
-  });
-
-  return (
-    <div className="space-y-6">
-      <SectionTitle
-        eyebrow="Bugungi nazorat"
-        title="Kunlik ish"
-        description="Bugungi brigadirlar va ishchilar holatini bir joyda ko‘ring."
-        action="Ishchi kiritish"
-        onAction={onAddWorkers}
-      />
-
-      <div className="bg-white border border-slate-200/80 rounded-[24px] p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400">Bugun</p>
-            <h2 className="mt-1 text-xl font-black text-slate-900">
-              {new Date().toLocaleDateString("uz-UZ", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              })}
-            </h2>
-          </div>
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
-            <CalendarDays size={20} />
-          </div>
-        </div>
-
-        {!entries.length ? (
-          <EmptyState
-            icon={Users}
-            title="Bugun hali ishchi kiritilmagan"
-            description="Brigadir va bugungi ishchilar sonini kiriting. Keyin bu sahifa kunlik nazorat markaziga aylanadi."
-            action="Bugungi ishni kiritish"
-            onAction={onAddWorkers}
-          />
-        ) : (
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {entries.map((entry) => (
-              <div key={entry.name} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white text-emerald-700 flex items-center justify-center font-black">
-                    {entry.name.charAt(0)}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-sm text-slate-800">{entry.name}</p>
-                    <p className="text-xs text-slate-400">{entry.note || "Bugungi ish"}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-black text-emerald-700">{number(entry.workers)}</p>
-                    <p className="text-[10px] text-slate-400">ishchi</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function DailyWorkPage({ brigadiers, onAddWorkers, categoryRates }) {
+  const today=todayISO();
+  const entries=brigadiers.map(b=>{const categoryWorkers={anor_uzish:0,salafanlash:0,ortish:0};let note="";b.logs.filter(l=>l.date===today&&Number(l.workers)>0).forEach(l=>{const c=l.category||"anor_uzish";if(categoryWorkers[c]!==undefined)categoryWorkers[c]+=Number(l.workers)||0;note=note||l.note||"Bugungi ish"});const total=Object.values(categoryWorkers).reduce((a,v)=>a+v,0);return total?{name:b.name,categoryWorkers,total,note}:null}).filter(Boolean);
+  return (<div className="space-y-6"><SectionTitle eyebrow="Bugungi nazorat" title="Kunlik ish" description="Bugungi brigadirlar va 3 xil ish turi bo‘yicha holat." action="Ishchi kiritish" onAction={onAddWorkers}/><div className="bg-white border border-slate-200/80 rounded-[24px] p-6"><div className="flex items-center justify-between"><div><p className="text-xs text-slate-400">Bugun</p><h2 className="mt-1 text-xl font-black text-slate-900">{new Date().toLocaleDateString("uz-UZ",{weekday:"long",day:"numeric",month:"long"})}</h2></div><div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><CalendarDays size={20}/></div></div>{!entries.length?<EmptyState icon={Users} title="Bugun hali ishchi kiritilmagan" description="Brigadir va har bir ish turi bo‘yicha ishchilar sonini kiriting." action="Bugungi ishni kiritish" onAction={onAddWorkers}/>:<div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">{entries.map(entry=><div key={entry.name} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-white text-emerald-700 flex items-center justify-center font-black">{entry.name.charAt(0)}</div><div className="flex-1"><p className="font-bold text-sm text-slate-800">{entry.name}</p><p className="text-xs text-slate-400">{entry.note}</p></div><div className="text-right"><p className="text-lg font-black text-emerald-700">{number(entry.total)}</p><p className="text-[10px] text-slate-400">jami ishchi</p></div></div><div className="mt-4 grid grid-cols-3 gap-2">{Object.entries(CATEGORY_META).map(([id,meta])=><div key={id} className="rounded-xl bg-white p-2"><p className="text-sm">{meta.icon}</p><p className="mt-1 text-[9px] leading-3 text-slate-400">{meta.name}</p><p className="mt-1 text-sm font-black">{number(entry.categoryWorkers[id])}</p></div>)}</div><div className="mt-3 pt-3 border-t border-slate-200/70 flex justify-between text-xs"><span className="text-slate-400">Bugungi hisob</span><b className="text-emerald-700">{money(Object.entries(entry.categoryWorkers).reduce((sum,[id,w])=>sum+w*getCategoryRate(categoryRates,id),0))}</b></div></div>)}</div>}</div></div>);
 }
 
-function SettingsPage({ rate, setRate, onExport, onClear }) {
-  const [localRate, setLocalRate] = useState(String(rate));
-
-  return (
-    <div className="space-y-6">
-      <SectionTitle
-        eyebrow="Tizim"
-        title="Sozlamalar"
-        description="Asosiy hisob-kitob va ma’lumotlar sozlamalari."
-      />
-
-      <div className="bg-white border border-slate-200/80 rounded-[24px] p-6 max-w-2xl">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
-            <Settings size={20} />
-          </div>
-          <div>
-            <h3 className="font-black text-slate-900">Mehnat haqi</h3>
-            <p className="text-sm text-slate-500 mt-1">
-              Bir ishchi uchun kunlik hisoblash stavkasini belgilang.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 max-w-sm">
-          <Input
-            label="Kunlik stavka (so‘m)"
-            value={localRate}
-            onChange={setLocalRate}
-            type="number"
-          />
-        </div>
-        <button
-          onClick={() => setRate(Math.max(Number(localRate) || DAILY_RATE, 0))}
-          className="mt-4 px-4 py-2.5 rounded-xl bg-[#0b6b43] text-white text-sm font-bold"
-        >
-          Saqlash
-        </button>
-      </div>
-
-      <div className="bg-white border border-slate-200/80 rounded-[24px] p-6 max-w-2xl">
-        <h3 className="font-black text-slate-900">Ma’lumotlar</h3>
-        <p className="text-sm text-slate-500 mt-1">
-          Tizimdagi ma’lumotlarni zaxiralash yoki barcha ma’lumotlarni tozalash.
-        </p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            onClick={onExport}
-            className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-700 flex items-center gap-2"
-          >
-            <Download size={16} /> Zaxira nusxa
-          </button>
-          <button
-            onClick={onClear}
-            className="px-4 py-2.5 rounded-xl bg-rose-50 text-rose-600 text-sm font-bold"
-          >
-            Barcha ma’lumotni tozalash
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+function SettingsPage({ categoryRates, setCategoryRates, onExport, onClear }) {
+  const [localRates,setLocalRates]=useState({...categoryRates});
+  useEffect(()=>setLocalRates({...categoryRates}),[categoryRates]);
+  const save=()=>setCategoryRates({anor_uzish:Math.max(Number(localRates.anor_uzish)||0,0),salafanlash:Math.max(Number(localRates.salafanlash)||0,0),ortish:Math.max(Number(localRates.ortish)||0,0)});
+  return (<div className="space-y-6"><SectionTitle eyebrow="Tizim" title="Sozlamalar" description="Har bir ish turi uchun alohida ish haqi stavkasini belgilang."/>
+    <div className="bg-white border border-slate-200/80 rounded-[24px] p-6 max-w-3xl"><div className="flex items-start gap-4"><div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><Settings size={20}/></div><div><h3 className="font-black text-slate-900">Ish haqi stavkalari</h3><p className="text-sm text-slate-500 mt-1">Bu stavkalar barcha brigadirlar, hisobotlar va moliyaviy hisoblarda ishlatiladi.</p></div></div><div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">{Object.entries(CATEGORY_META).map(([id,meta])=><div key={id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center gap-2"><span className="text-xl">{meta.icon}</span><p className="font-black text-sm text-slate-800">{meta.name}</p></div><div className="mt-4"><Input label="1 ishchi uchun (so‘m)" type="number" value={String(localRates[id]??"")} onChange={v=>setLocalRates(prev=>({...prev,[id]:v}))} placeholder="150000"/></div></div>)}</div><button onClick={save} className="mt-5 px-5 py-2.5 rounded-xl bg-[#0b6b43] text-white text-sm font-bold flex items-center gap-2"><Check size={16}/> Stavkalarni saqlash</button></div>
+    <div className="bg-white border border-slate-200/80 rounded-[24px] p-6 max-w-3xl"><h3 className="font-black text-slate-900">Ma’lumotlar</h3><p className="text-sm text-slate-500 mt-1">Tizimdagi ma’lumotlarni zaxiralash yoki barcha ma’lumotlarni tozalash.</p><div className="mt-5 flex flex-wrap gap-3"><button onClick={onExport} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-700 flex items-center gap-2"><Download size={16}/> Zaxira nusxa</button><button onClick={onClear} className="px-4 py-2.5 rounded-xl bg-rose-50 text-rose-600 text-sm font-bold">Barcha ma’lumotni tozalash</button></div></div>
+  </div>);
 }
 
 export default function App() {
@@ -990,12 +868,12 @@ export default function App() {
     }
   });
 
-  const [rate, setRate] = useState(() => {
+  const [categoryRates, setCategoryRates] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-      return saved.rate || DAILY_RATE;
+      return { ...DEFAULT_CATEGORY_RATES, ...(saved.categoryRates || {}) };
     } catch {
-      return DAILY_RATE;
+      return { ...DEFAULT_CATEGORY_RATES };
     }
   });
 
@@ -1003,24 +881,12 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [mobileMenu, setMobileMenu] = useState(false);
 
-  // Mac-style notification / toast system
-  const [toasts, setToasts] = useState([]);
-
-  const addToast = (title, message, type = "success") => {
-    const id = uid("toast");
-    setToasts((prev) => [...prev, { id, title, message, type }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 4500);
-  };
-
   const [modal, setModal] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [newBrigadier, setNewBrigadier] = useState(emptyBrigadier);
   const [workerForm, setWorkerForm] = useState({
     brigadierId: "",
     date: todayISO(),
-    workers: "",
+    rows: [{ id: Date.now(), workers: "", category: "anor_uzish" }],
     note: "",
   });
   const [advanceForm, setAdvanceForm] = useState({
@@ -1031,74 +897,36 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ brigadiers, rate }));
-  }, [brigadiers, rate]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ brigadiers, categoryRates }));
+  }, [brigadiers, categoryRates]);
 
   const stats = useMemo(() => {
-    let allWorkers = 0;
-    let todayWorkers = 0;
-    let totalAdvance = 0;
-    let advanceCount = 0;
-    let totalLogs = 0;
+    let allWorkers = 0, todayWorkers = 0, todayEarned = 0, totalAdvance = 0, advanceCount = 0, totalLogs = 0, totalEarned = 0;
     const dailyWorkers = Array(7).fill(0);
-
-    brigadiers.forEach((b) => {
-      b.logs.forEach((log) => {
-        const workers = Number(log.workers) || 0;
-        const advance = Number(log.advance) || 0;
-        allWorkers += workers;
-        totalAdvance += advance;
-        if (advance > 0) advanceCount++;
-        totalLogs++;
-
-        const diff = Math.floor(
-          (new Date(`${todayISO()}T12:00:00`) - new Date(`${log.date}T12:00:00`)) /
-            86400000
-        );
-        if (diff === 0) todayWorkers += workers;
-        if (diff >= 0 && diff < 7) dailyWorkers[6 - diff] += workers;
-      });
-    });
-
-    return {
-      brigadiers: brigadiers.length,
-      allWorkers,
-      todayWorkers,
-      totalAdvance,
-      advanceCount,
-      totalLogs,
-      totalEarned: allWorkers * rate,
-      weekWorkers: dailyWorkers.reduce((a, b) => a + b, 0),
-      dailyWorkers,
-    };
-  }, [brigadiers, rate]);
+    const categoryWorkers = { anor_uzish: 0, salafanlash: 0, ortish: 0 };
+    const today = todayISO();
+    brigadiers.forEach((b) => b.logs.forEach((log) => {
+      const workers = Number(log.workers) || 0;
+      const advance = Number(log.advance) || 0;
+      const category = log.category || "anor_uzish";
+      const earned = workers * getCategoryRate(categoryRates, category);
+      allWorkers += workers; totalEarned += earned; totalAdvance += advance; if (advance > 0) advanceCount++; totalLogs++;
+      if (categoryWorkers[category] !== undefined) categoryWorkers[category] += workers;
+      const diff = Math.floor((new Date(`${today}T12:00:00`) - new Date(`${log.date}T12:00:00`)) / 86400000);
+      if (diff === 0) { todayWorkers += workers; todayEarned += earned; }
+      if (diff >= 0 && diff < 7) dailyWorkers[6-diff] += workers;
+    }));
+    return { brigadiers: brigadiers.length, allWorkers, todayWorkers, todayEarned, totalAdvance, advanceCount, totalLogs, totalEarned, weekWorkers: dailyWorkers.reduce((a,b)=>a+b,0), dailyWorkers, categoryWorkers };
+  }, [brigadiers, categoryRates]);
 
   const recent = useMemo(() => {
-    const list = [];
-    brigadiers.forEach((b) =>
-      b.logs.forEach((l) => {
-        if (Number(l.workers) > 0) {
-          list.push({
-            id: `${l.id}_w`,
-            type: "workers",
-            date: l.date,
-            title: `${b.name} — ${number(l.workers)} ta ishchi`,
-            subtitle: l.note || "Ishchilar kiritildi",
-          });
-        }
-        if (Number(l.advance) > 0) {
-          list.push({
-            id: `${l.id}_a`,
-            type: "advance",
-            date: l.date,
-            title: `${b.name} — ${money(l.advance)} avans`,
-            subtitle: l.note || "Avans berildi",
-          });
-        }
-      })
-    );
-    return list.sort((a, b) => b.date.localeCompare(a.date));
-  }, [brigadiers]);
+    const list=[];
+    brigadiers.forEach(b=>b.logs.forEach(l=>{
+      if(Number(l.workers)>0) list.push({id:`${l.id}_w`,type:"workers",date:l.date,title:`${b.name} — ${number(l.workers)} ta ${getCategoryName(l.category || "anor_uzish")}`,subtitle:l.note||"Ishchilar kiritildi"});
+      if(Number(l.advance)>0) list.push({id:`${l.id}_a`,type:"advance",date:l.date,title:`${b.name} — ${money(l.advance)} avans`,subtitle:l.note||"Avans berildi"});
+    }));
+    return list.sort((a,b)=>b.date.localeCompare(a.date));
+  },[brigadiers]);
 
   const selectedBrigadier = brigadiers.find((b) => b.id === selectedId);
 
@@ -1124,86 +952,28 @@ export default function App() {
     setBrigadiers((prev) => [item, ...prev]);
     setNewBrigadier(emptyBrigadier);
     setModal(null);
-    addToast("Brigadir qo‘shildi", `${item.name} tizimga muvaffaqiyatli qo‘shildi.`);
   };
 
   const saveWorkerLog = (e) => {
-  e.preventDefault();
-
-  if (!workerForm.brigadierId) return;
-
-  const rows = (workerForm.rows || [])
-    .map((row) => ({
-      ...row,
-      workers: Number(row.workers) || 0,
-    }))
-    .filter((row) => row.workers > 0);
-
-  if (!rows.length) return;
-
-  const totalWorkers = rows.reduce(
-    (sum, row) => sum + row.workers,
-    0
-  );
-
-  setBrigadiers((prev) =>
-    prev.map((b) => {
-      if (b.id !== workerForm.brigadierId) return b;
-
-      let logs = [...b.logs];
-
-      rows.forEach((row) => {
-        const existingIndex = logs.findIndex(
-          (l) =>
-            l.date === workerForm.date &&
-            l.category === row.category
-        );
-
-        if (existingIndex !== -1) {
-          logs[existingIndex] = {
-            ...logs[existingIndex],
-            workers: row.workers,
-            note: workerForm.note || logs[existingIndex].note,
-          };
-        } else {
-          logs.push({
-            id: uid("log"),
-            date: workerForm.date,
-            workers: row.workers,
-            category: row.category,
-            advance: 0,
-            note: workerForm.note,
-          });
-        }
+    e.preventDefault();
+    if (!workerForm.brigadierId) return;
+    const grouped = (workerForm.rows || []).reduce((acc,row)=>{ const workers=Number(row.workers)||0; const category=row.category||"anor_uzish"; if(workers>0) acc[category]=(acc[category]||0)+workers; return acc; },{});
+    const rows=Object.entries(grouped).map(([category,workers])=>({category,workers}));
+    if (!rows.length) return;
+    const totalWorkers=rows.reduce((sum,row)=>sum+row.workers,0);
+    setBrigadiers(prev=>prev.map(b=>{
+      if(b.id!==workerForm.brigadierId) return b;
+      let logs=[...b.logs];
+      rows.forEach(row=>{
+        const index=logs.findIndex(l=>l.date===workerForm.date&&(l.category||"anor_uzish")===row.category&&Number(l.advance||0)===0);
+        if(index!==-1) logs[index]={...logs[index],workers:row.workers,category:row.category,note:workerForm.note||logs[index].note};
+        else logs.push({id:uid("log"),date:workerForm.date,workers:row.workers,category:row.category,advance:0,note:workerForm.note});
       });
-
-      return {
-        ...b,
-        logs,
-      };
-    })
-  );
-
-  setModal(null);
-
-  setWorkerForm({
-    brigadierId: "",
-    date: todayISO(),
-    rows: [
-      {
-        id: Date.now(),
-        workers: "",
-        category: "anor_uzish",
-      },
-    ],
-    note: "",
-  });
-
-  addToast(
-  "Ishchilar saqlandi",
-  `${totalWorkers} ta ishchi ma'lumotlari saqlandi.`
-);
-};
+      return {...b,logs};
+    }));
+    setModal(null);
+    setWorkerForm({brigadierId:"",date:todayISO(),rows:[{id:Date.now(),workers:"",category:"anor_uzish"}],note:""});
+  };
 
   const saveAdvance = (e) => {
     e.preventDefault();
@@ -1231,16 +1001,10 @@ export default function App() {
 
     setModal(null);
     setAdvanceForm({ brigadierId: "", date: todayISO(), amount: "", note: "" });
-    addToast("Avans saqlandi", `${money(amount)} avans muvaffaqiyatli qayd qilindi.`);
   };
 
   const openWorkersModal = (brigadierId = "") => {
-    setWorkerForm({
-      brigadierId: brigadierId || selectedId || brigadiers[0]?.id || "",
-      date: todayISO(),
-      workers: "",
-      note: "",
-    });
+    setWorkerForm({brigadierId:brigadierId||selectedId||brigadiers[0]?.id||"",date:todayISO(),rows:[{id:Date.now(),workers:"",category:"anor_uzish"}],note:""});
     setModal("workers");
   };
 
@@ -1256,30 +1020,15 @@ export default function App() {
 
   const deleteBrigadier = () => {
     if (!selectedBrigadier) return;
-    setDeleteConfirm(true);
-  };
-
-  const confirmDeleteBrigadier = () => {
-    if (!selectedBrigadier || !selectedId) return;
-
-    const brigadierId = selectedId;
-    const name = selectedBrigadier.name;
-
-    setBrigadiers((prev) => prev.filter((b) => b.id !== brigadierId));
-    setDeleteConfirm(false);
+    if (!window.confirm(`"${selectedBrigadier.name}" brigadirini o‘chirishni tasdiqlaysizmi?`)) return;
+    setBrigadiers((prev) => prev.filter((b) => b.id !== selectedId));
     setSelectedId(null);
     setActiveTab("brigadiers");
-
-    addToast(
-      "Brigadir o‘chirildi",
-      `"${name}" tizimdan olib tashlandi.`,
-      "warning"
-    );
   };
 
   const exportBackup = () => {
     const blob = new Blob(
-      [JSON.stringify({ exportedAt: new Date().toISOString(), brigadiers, rate }, null, 2)],
+      [JSON.stringify({ exportedAt: new Date().toISOString(), brigadiers, categoryRates }, null, 2)],
       { type: "application/json" }
     );
     const url = URL.createObjectURL(blob);
@@ -1288,14 +1037,13 @@ export default function App() {
     a.download = `anor-bogi-backup-${todayISO()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    addToast("Zaxira tayyor", "Ma’lumotlar JSON fayl sifatida yuklab olindi.");
   };
 
   const clearAll = () => {
     if (!window.confirm("Barcha brigadirlar va ish ma’lumotlari o‘chiriladi. Davom etasizmi?")) return;
     setBrigadiers([]);
+    setCategoryRates({ ...DEFAULT_CATEGORY_RATES });
     localStorage.removeItem(STORAGE_KEY);
-    addToast("Ma’lumotlar tozalandi", "Barcha brigadir va ish ma’lumotlari o‘chirildi.", "warning");
   };
 
   const navItems = [
@@ -1310,6 +1058,7 @@ export default function App() {
     selectedBrigadier && activeTab === "brigadiers" ? (
       <BrigadierDetail
         brigadier={selectedBrigadier}
+        categoryRates={categoryRates}
         onBack={() => setSelectedId(null)}
         onAddWorkers={() => openWorkersModal(selectedBrigadier.id)}
         onAdvance={() => openAdvanceModal(selectedBrigadier.id)}
@@ -1329,19 +1078,20 @@ export default function App() {
     ) : activeTab === "brigadiers" ? (
       <BrigadiersPage
         brigadiers={brigadiers}
+        categoryRates={categoryRates}
         onAdd={() => setModal("brigadier")}
         onOpen={(id) => setSelectedId(id)}
       />
     ) : activeTab === "daily" ? (
-      <DailyWorkPage brigadiers={brigadiers} onAddWorkers={() => openWorkersModal()} />
+      <DailyWorkPage brigadiers={brigadiers} categoryRates={categoryRates} onAddWorkers={() => openWorkersModal()} />
     ) : activeTab === "finance" ? (
-      <FinancePage stats={stats} brigadiers={brigadiers} />
+      <FinancePage stats={stats} brigadiers={brigadiers} categoryRates={categoryRates} />
     ) : activeTab === "reports" ? (
-      <ReportsPage stats={stats} brigadiers={brigadiers} />
+      <ReportsPage stats={stats} brigadiers={brigadiers} categoryRates={categoryRates} />
     ) : (
       <SettingsPage
-        rate={rate}
-        setRate={setRate}
+        categoryRates={categoryRates}
+        setCategoryRates={setCategoryRates}
         onExport={exportBackup}
         onClear={clearAll}
       />
@@ -1349,159 +1099,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f7f9f8] text-slate-900">
-      {/* Mac-style notification center */}
-      <div className="fixed top-4 right-4 sm:top-5 sm:right-5 z-[200] w-[calc(100%-2rem)] sm:w-[390px] pointer-events-none space-y-3">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className="pointer-events-auto overflow-hidden rounded-[22px] border border-white/70 bg-white/90 backdrop-blur-2xl shadow-[0_20px_60px_rgba(15,23,42,0.18)] animate-[toastIn_0.35s_ease-out]"
-          >
-            <div className="p-4 flex items-start gap-3.5">
-              <div
-                className={`w-10 h-10 shrink-0 rounded-[13px] flex items-center justify-center ${
-                  toast.type === "warning"
-                    ? "bg-orange-50 text-orange-600"
-                    : toast.type === "error"
-                    ? "bg-rose-50 text-rose-600"
-                    : "bg-emerald-50 text-emerald-700"
-                }`}
-              >
-                {toast.type === "warning" ? (
-                  <Bell size={19} />
-                ) : toast.type === "error" ? (
-                  <X size={19} />
-                ) : (
-                  <CheckCircle2 size={19} />
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-[13px] font-black text-slate-900 truncate">{toast.title}</p>
-                  <span className="text-[10px] text-slate-400 shrink-0">hozir</span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{toast.message}</p>
-              </div>
-
-              <button
-                onClick={() => setToasts((prev) => prev.filter((item) => item.id !== toast.id))}
-                className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition"
-                aria-label="Bildirishnomani yopish"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            <div className="h-0.5 bg-slate-100">
-              <div
-                className={`h-full origin-left animate-[toastProgress_4.5s_linear_forwards] ${
-                  toast.type === "warning" ? "bg-orange-400" : toast.type === "error" ? "bg-rose-400" : "bg-emerald-500"
-                }`}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <style>{`
-        @keyframes toastIn {
-          from { opacity: 0; transform: translateY(-18px) scale(.97); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes toastProgress {
-          from { transform: scaleX(1); }
-          to { transform: scaleX(0); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes modalIn {
-          from { opacity: 0; transform: translateY(18px) scale(.94); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-      `}</style>
-
-
-      <style>{`
-        /* Telefon / kichik ekranlar uchun qo‘shimcha responsive qatlam */
-        @media (max-width: 639px) {
-          html, body, #root {
-            max-width: 100%;
-            overflow-x: hidden;
-          }
-
-          button, input, select, textarea {
-            -webkit-tap-highlight-color: transparent;
-          }
-
-          input, select, textarea {
-            font-size: 16px !important;
-          }
-
-          /* Header */
-          header {
-            padding-left: 12px !important;
-            padding-right: 12px !important;
-          }
-
-          /* Sahifa kontenti */
-          main > div:last-child {
-            padding: 12px !important;
-          }
-
-          /* Dashboard/stat kartalar */
-          .grid {
-            min-width: 0;
-          }
-
-          /* Katta kartalar telefonda ekranni oshirib yubormasin */
-          [class*="min-w-["] {
-            min-width: 0 !important;
-          }
-
-          /* Modal */
-          [role="dialog"] {
-            padding: 12px !important;
-          }
-
-          [role="dialog"] > div.relative {
-            max-height: calc(100vh - 24px);
-            overflow-y: auto;
-          }
-
-          /* Delete modal tugmalari */
-          [role="dialog"] .grid.grid-cols-2 {
-            grid-template-columns: 1fr !important;
-          }
-
-          /* Uzun matnlar */
-          p, h1, h2, h3, h4, span {
-            overflow-wrap: anywhere;
-          }
-        }
-
-        @media (max-width: 380px) {
-          header {
-            height: 64px !important;
-          }
-
-          header .w-10 {
-            width: 38px !important;
-            height: 38px !important;
-          }
-
-          header .w-9 {
-            width: 34px !important;
-            height: 34px !important;
-          }
-
-          main > div:last-child {
-            padding: 10px !important;
-          }
-        }
-      `}</style>
-
       <div className="flex min-h-screen">
         <aside
           className={`fixed lg:sticky top-0 z-50 h-screen w-[270px] bg-[#073c29] text-white flex flex-col transition-transform duration-300 ${
@@ -1613,18 +1210,7 @@ export default function App() {
                 <CalendarDays size={15} />
                 {new Date().toLocaleDateString("uz-UZ", { day: "2-digit", month: "short" })}
               </div>
-              <button
-                onClick={() => {
-                  if (recent.length) {
-                    const latest = recent[0];
-                    addToast("So‘nggi faoliyat", latest.title);
-                  } else {
-                    addToast("Bildirishnomalar", "Hozircha yangi faoliyat mavjud emas.", "warning");
-                  }
-                }}
-                className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-emerald-700 hover:border-emerald-200 transition"
-                aria-label="Bildirishnomalar"
-              >
+              <button className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500">
                 <Bell size={18} />
                 {recent.length > 0 && <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-orange-500" />}
               </button>
@@ -1640,71 +1226,9 @@ export default function App() {
             </div>
           </header>
 
-          <div className="w-full p-4 sm:p-6 lg:p-9">{page}</div>
+          <div className="w-full p-4 sm:p-6 lg:p-8 xl:p-9">{page}</div>
         </main>
       </div>
-
-      {deleteConfirm && selectedBrigadier && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-brigadier-title"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setDeleteConfirm(false);
-          }}
-        >
-          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md animate-[fadeIn_.18s_ease-out]" />
-
-          <div className="relative w-full max-w-[430px] overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_30px_100px_rgba(15,23,42,0.28)] animate-[modalIn_.22s_cubic-bezier(.16,1,.3,1)]">
-            <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-rose-500 via-red-500 to-orange-400" />
-
-            <div className="p-7 sm:p-8">
-              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 ring-8 ring-rose-50/60">
-                <Trash2 className="h-7 w-7 text-rose-500" />
-              </div>
-
-              <div className="text-center">
-                <h3 id="delete-brigadier-title" className="text-xl font-extrabold tracking-tight text-slate-900">
-                  Brigadirni o‘chirasizmi?
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  <span className="font-bold text-slate-700">“{selectedBrigadier.name}”</span> brigadirini tizimdan
-                  o‘chirishni tasdiqlang.
-                </p>
-              </div>
-
-              <div className="mt-5 rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3.5">
-                <div className="flex gap-3">
-                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
-                  <p className="text-xs font-medium leading-5 text-rose-700">
-                    Bu brigadirga tegishli ishchilar va hisob-kitoblar ham o‘chadi. Bu amalni ortga qaytarib bo‘lmaydi.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDeleteConfirm(false)}
-                  className="h-12 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700 transition-all hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md active:translate-y-0"
-                >
-                  Bekor qilish
-                </button>
-
-                <button
-                  type="button"
-                  onClick={confirmDeleteBrigadier}
-                  className="group flex h-12 items-center justify-center gap-2 rounded-2xl bg-rose-500 text-sm font-extrabold text-white shadow-lg shadow-rose-500/20 transition-all hover:-translate-y-0.5 hover:bg-rose-600 hover:shadow-xl hover:shadow-rose-500/25 active:translate-y-0"
-                >
-                  <Trash2 className="h-4 w-4 transition-transform group-hover:scale-110" />
-                  O‘chirish
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <Modal
         open={modal === "brigadier"}
@@ -1743,166 +1267,29 @@ export default function App() {
 
       <Modal
         open={modal === "workers"}
-        title="Bugungi ishchilarni kiritish"
-        subtitle="Brigadir va ishchilar sonini belgilang."
+        title="Ishchilarni kiritish"
+        subtitle="Bir vaqtning o‘zida bir nechta ish turini kiriting."
         onClose={() => setModal(null)}
+        wide
       >
-        <form onSubmit={saveWorkerLog} className="p-6 space-y-4">
-          <label className="block">
-            <span className="block text-xs font-bold text-slate-600 mb-2">Brigadir *</span>
-            <select
-              value={workerForm.brigadierId}
-              onChange={(e) => setWorkerForm((s) => ({ ...s, brigadierId: e.target.value }))}
-              className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 outline-none focus:border-emerald-500 text-sm"
-            >
-              <option value="">Brigadirni tanlang</option>
-              {brigadiers.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-          </label>
-          <Input label="Sana" type="date" value={workerForm.date} onChange={(v) => setWorkerForm((s) => ({ ...s, date: v }))} />
-          <div className="space-y-3">
-  <div className="flex items-center justify-between">
-    <div>
-      <p className="text-xs font-bold text-slate-700">
-        Ishchilar kategoriyasi
-      </p>
-
-      <p className="text-[10px] text-slate-400 mt-1">
-        Ishchi sonini yozing va ish turini tanlang
-      </p>
-    </div>
-
-    <button
-      type="button"
-      onClick={() =>
-        setWorkerForm((s) => ({
-          ...s,
-          rows: [
-            ...s.rows,
-            {
-              id: Date.now(),
-              workers: "",
-              category: "anor_uzish",
-            },
-          ],
-        }))
-      }
-      className="h-9 px-3 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold"
-    >
-      + Kategoriya qo‘shish
-    </button>
-  </div>
-
-  {workerForm.rows.map((row, index) => (
-    <div
-      key={row.id}
-      className="p-3 rounded-2xl border border-slate-200 bg-slate-50"
-    >
-      <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr_auto] gap-3">
-
-        <Input
-          label="Ishchi soni"
-          type="number"
-          value={row.workers}
-          onChange={(v) =>
-            setWorkerForm((s) => ({
-              ...s,
-              rows: s.rows.map((item) =>
-                item.id === row.id
-                  ? { ...item, workers: v }
-                  : item
-              ),
-            }))
-          }
-          placeholder="10"
-        />
-
-        <label className="block">
-          <span className="block text-xs font-bold text-slate-600 mb-2">
-            Ish turi
-          </span>
-
-          <select
-            value={row.category}
-            onChange={(e) =>
-              setWorkerForm((s) => ({
-                ...s,
-                rows: s.rows.map((item) =>
-                  item.id === row.id
-                    ? {
-                        ...item,
-                        category: e.target.value,
-                      }
-                    : item
-                ),
-              }))
-            }
-            className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:border-emerald-500"
-          >
-            <option value="anor_uzish">
-              🍎 Anor uzish
-            </option>
-
-            <option value="salafanlash">
-              📦 Salafanlash
-            </option>
-
-            <option value="ortish">
-              🚚 Ortish
-            </option>
-          </select>
-        </label>
-
-        {workerForm.rows.length > 1 && (
-          <button
-            type="button"
-            onClick={() =>
-              setWorkerForm((s) => ({
-                ...s,
-                rows: s.rows.filter(
-                  (item) => item.id !== row.id
-                ),
-              }))
-            }
-            className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-red-500"
-          >
-            ×
-          </button>
-        )}
-      </div>
-    </div>
-  ))}
-
-  <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-100">
-    <span className="text-xs font-bold text-emerald-700">
-      Jami ishchilar
-    </span>
-
-    <span className="text-lg font-black text-emerald-800">
-      {workerForm.rows.reduce(
-        (sum, row) =>
-          sum + (Number(row.workers) || 0),
-        0
-      )} ta
-    </span>
-  </div>
-</div>
-          <Input label="Izoh" value={workerForm.note} onChange={(v) => setWorkerForm((s) => ({ ...s, note: v }))} placeholder="Masalan: Anor terimi" />
-          <button
-            type="submit"
-           disabled={
-  !workerForm.brigadierId ||
-  !workerForm.rows ||
-  !workerForm.rows.some(
-    (row) => Number(row.workers) > 0
-  )
-}
-            className="w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-40"
-          >
-            Ishchilarni saqlash
-          </button>
+        <form onSubmit={saveWorkerLog} className="p-6 space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="block"><span className="block text-xs font-bold text-slate-600 mb-2">Brigadir *</span><select value={workerForm.brigadierId} onChange={(e)=>setWorkerForm(s=>({...s,brigadierId:e.target.value}))} className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 outline-none focus:border-emerald-500 text-sm"><option value="">Brigadirni tanlang</option>{brigadiers.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+            <Input label="Sana" type="date" value={workerForm.date} onChange={v=>setWorkerForm(s=>({...s,date:v}))}/>
+          </div>
+          <div className="rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 bg-slate-50 flex items-center justify-between"><div><p className="text-sm font-black text-slate-800">Ish turlari</p><p className="text-[11px] text-slate-400">Masalan: 20 + 5 + 3 ta</p></div><span className="text-xs font-bold text-emerald-700">{number((workerForm.rows||[]).reduce((s,r)=>s+(Number(r.workers)||0),0))} ta jami</span></div>
+            <div className="p-4 space-y-3">
+              {(workerForm.rows||[]).map((row,index)=><div key={row.id} className="grid grid-cols-[1fr_1.5fr_auto] gap-3 items-end">
+                <Input label={index===0?"Ishchilar soni *":""} type="number" value={row.workers} onChange={v=>setWorkerForm(s=>({...s,rows:s.rows.map(r=>r.id===row.id?{...r,workers:v}:r)}))} placeholder="20"/>
+                <label className="block"><span className="block text-xs font-bold text-slate-600 mb-2">{index===0?"Ish turi *":""}</span><select value={row.category} onChange={e=>setWorkerForm(s=>({...s,rows:s.rows.map(r=>r.id===row.id?{...r,category:e.target.value}:r)}))} className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 outline-none focus:border-emerald-500 text-sm">{Object.entries(CATEGORY_META).map(([id,meta])=><option key={id} value={id}>{meta.icon} {meta.name} — {money(getCategoryRate(categoryRates,id))}</option>)}</select></label>
+                <button type="button" disabled={workerForm.rows.length===1} onClick={()=>setWorkerForm(s=>({...s,rows:s.rows.filter(r=>r.id!==row.id)}))} className="h-11 w-11 rounded-xl bg-rose-50 text-rose-500 disabled:opacity-30">×</button>
+              </div>)}
+              <button type="button" onClick={()=>setWorkerForm(s=>({...s,rows:[...s.rows,{id:Date.now()+Math.random(),workers:"",category:"anor_uzish"}]}))} className="w-full h-10 rounded-xl border border-dashed border-emerald-300 text-emerald-700 text-sm font-bold hover:bg-emerald-50">+ Yana ish turi qo‘shish</button>
+            </div>
+          </div>
+          <Input label="Izoh" value={workerForm.note} onChange={v=>setWorkerForm(s=>({...s,note:v}))} placeholder="Masalan: Bugungi terim"/>
+          <button type="submit" disabled={!workerForm.brigadierId || !(workerForm.rows||[]).some(r=>Number(r.workers)>0)} className="w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-40">Ishchilarni saqlash</button>
         </form>
       </Modal>
 
